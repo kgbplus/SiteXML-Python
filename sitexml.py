@@ -59,12 +59,50 @@ DEFAULT_THEME_HTML = '''
 
 
 class SiteXML():
+    def __init__(self):
+
+        self._response_headers = []
+        self._response_body = ''
+
+        self.editMode = False
+
+        self.setEditMode()
+        self.obj = self.getObj()
+        self.pid = self.getPid()
+        self.pageObj = self.getpageObj(self.pid)
+        self.themeObj = self.getTheme()
+        self.basePath = self.getSiteBasePath()
+
+    @property
+    def response_headers(self):
+        return self._response_headers
+
+    @response_headers.setter
+    def response_headers(self, header):
+        self._response_headers.append(header)
+
+    @property
+    def response_body(self):
+        return self._response_body
+
+    @response_body.setter
+    def response_body(self, content):
+        self._response_body += content
+
+    def setEditMode(self):
+        if (not session.get('edit', None)) and (not session.get('username', None)):
+            self.response_headers = ('Cache-Control', 'no-cache, must-revalidate')
+            self.editMode = True
 
 
 def app(environ, start_response):
+    global session
+
     session = environ['beaker.session']
+
+    sitexml = SiteXML()
+
     status = '200 OK'
-    response_body = ''
     response_headers = [
         ('Content-Type', 'text/html; charset=utf-8'),
     ]
@@ -81,51 +119,50 @@ def app(environ, start_response):
 
         if 'sitexml' in d:
             if sitexml.saveXML(d.get('sitexml')):
-                response_body += 'siteXML saved'
+                sitexml.response_body = 'siteXML saved'
             else:
-                response_body +=  sitexml.error('siteXML was not saved')
+                sitexml.response_body = sitexml.error('siteXML was not saved')
         elif ('cid' in d) and ('content' in d):
-            response_body += sitexml.saveContent(d.get('cid'),d.get('content'))
+            sitexml.response_body = sitexml.saveContent(d.get('cid'), d.get('content'))
         elif ('username' in d) and ('password' in d):
-            response_body += sitexml.login()
+            sitexml.response_body = sitexml.login()
 
     elif method == 'GET':
         d = parse_qs(environ['QUERY_STRING'])
 
         if 'logout' in d:
-            response_body += sitexml.logout()
+            sitexml.response_body = sitexml.logout()
 
         if 'edit' in d:
             if not d.get('username', None):
                 session['edit'] = True
-                response_body += sitexml.page()
+                sitexml.response_body = sitexml.page()
             else:
-                response_body += sitexml.loginScreen('edit')
+                sitexml.response_body = sitexml.loginScreen('edit')
         elif 'sitexml' in d:
-            response_headers = [
+            sitexml.response_headers = [
                 ('Content-Type', 'text/xml; charset=utf-8'),
             ]
-            response_body += sitexml.getXML()
+            sitexml.response_body = sitexml.getXML()
         elif 'login' in d:
-            response_body += sitexml.loginScreen()
+            sitexml.response_body = sitexml.loginScreen()
         elif not d.get('cid', None):
-            response_body += sitexml.getContent(d.get('cid'))
+            sitexml.response_body = sitexml.getContent(d.get('cid'))
         elif (not d.get('id', None)) and (not d.get('name', None)):
-            response_body += sitexml.getContentByIdAndName(d.get('id'), d.get('name'))
+            sitexml.response_body = sitexml.getContentByIdAndName(d.get('id'), d.get('name'))
         else:
-            response_body += sitexml.page()
-
-        response_body += '<!--' + session.keys() + '-->' #session.items()?
+            sitexml.response_body = sitexml.page()
 
     else:
-        status = 'HTTP/1.1 405 Method Not Allowed'
-        response_headers = [
+        status = '405 Method Not Allowed'
+        sitexml.response_headers = [
             ('Content-Type', 'text/html; charset=utf-8'),
             ('Allow', 'GET, POST'),
         ]
 
-    start_response(status, response_headers)
-    return [response_body]
+    start_response(status, sitexml.response_headers)
+    return [sitexml.response_body]
+
 
 if __name__ == '__main__':
     try:
@@ -144,8 +181,5 @@ if __name__ == '__main__':
         print('Serving on port 8080...')
         httpd.serve_forever()
 
-        sitexml = SiteXML()
-
     except KeyboardInterrupt:
         print('Goodbye.')
-
