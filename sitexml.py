@@ -27,8 +27,10 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 """
 
+import os
 from urllib.parse import parse_qs
 from html import escape
+import xml.etree.ElementTree
 from beaker.middleware import SessionMiddleware
 
 DEBUG = True
@@ -58,9 +60,10 @@ DEFAULT_THEME_HTML = '''
     '''
 
 
-class SiteXML():
-    def __init__(self):
+class SiteXML:
+    def __init__(self, session):
 
+        self.session = session
         self._response_headers = []
         self._response_body = ''
 
@@ -79,7 +82,7 @@ class SiteXML():
 
     @response_headers.setter
     def response_headers(self, header):
-        self._response_headers.append(header)
+        self._response_headers.update(header)
 
     @property
     def response_body(self):
@@ -90,20 +93,82 @@ class SiteXML():
         self._response_body += content
 
     def setEditMode(self):
-        if (not session.get('edit', None)) and (not session.get('username', None)):
+        if (not session.get('edit', None)) and (not self.session.get('username', None)):
             self.response_headers = ('Cache-Control', 'no-cache, must-revalidate')
             self.editMode = True
 
+    def loginScreen(self, edit=''):
+        self.response_body = '''
+        <!DOCTYPE html>
+<html>
+<head>
+    <title>Login</title>
+</head>
+<style>
+    .siteXML-logindiv {
+        width: 250px;
+        margin: auto;
+    }
+    .siteXML-logindiv div {
+        padding: 5px 0;
+    }
+</style>
+<body>
+<div class="siteXML-logindiv">
+    <form action="/" method="post">
+        <div>
+            <input placeholder="Username" name="username" type="text" autofocus="true">
+        </div>
+        <div>
+            <input placeholder="Password" name="password" type="password">
+        </div>
+        <div>
+        '''
+        if edit == 'edit':
+            self.response_body = '<input type="hidden" name="edit" value="true">'
+        self.response_body = '''
+        <input type="submit">
+        </div>
+    </form>
+</div>
+</body>
+</html>
+        '''
+
+    def login(self, username, password, edit):
+        user = self.getUser(username)
+        if user:
+            if user[2] == password:
+                self.session['username'] = username
+                if edit:
+                    self.session['edit'] = True  # is it different from setEditMode?
+                self.response_headers = ('location', '/')
+
+    @staticmethod
+    def getUser(username):
+        if os.path.isfile(USERS_FILE):
+            with open(USERS_FILE, 'r') as f:
+                for user in f.readline():
+                    user = user.split(':')
+                    if user[1] == username:
+                        return user
+
+    def logout(self):
+        self.session.delete()
+
+    def getObj(self):
+        if os.path.isfile(SITEXML):
+            return xml.etree.ElementTree.parse(SITEXML).getroot()
+        else:
+            raise FileNotFoundError
 
 def app(environ, start_response):
-    global session
-
     session = environ['beaker.session']
 
-    sitexml = SiteXML()
+    sitexml = SiteXML(session)
 
     status = '200 OK'
-    response_headers = [
+    sitexml.response_headers = [
         ('Content-Type', 'text/html; charset=utf-8'),
     ]
 
@@ -111,7 +176,7 @@ def app(environ, start_response):
     if method == 'POST':
         try:
             request_body_size = int(environ.get('CONTENT_LENGTH', 0))
-        except (ValueError):
+        except ValueError:
             request_body_size = 0
 
         request_body = environ['wsgi.input'].read(request_body_size)
@@ -124,14 +189,14 @@ def app(environ, start_response):
                 sitexml.response_body = sitexml.error('siteXML was not saved')
         elif ('cid' in d) and ('content' in d):
             sitexml.response_body = sitexml.saveContent(d.get('cid'), d.get('content'))
-        elif ('username' in d) and ('password' in d):
-            sitexml.response_body = sitexml.login()
+        elif (not d.get('username', None)) and (not d.get('password', None)):
+            sitexml.response_body = sitexml.login(d['username'], d['password'], d.get('edit', None))
 
     elif method == 'GET':
         d = parse_qs(environ['QUERY_STRING'])
 
         if 'logout' in d:
-            sitexml.response_body = sitexml.logout()
+            sitexml.logout()
 
         if 'edit' in d:
             if not d.get('username', None):
