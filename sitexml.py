@@ -28,7 +28,8 @@ SOFTWARE.
 """
 
 import os
-from urllib.parse import parse_qs
+import hashlib
+from urllib.parse import parse_qs, unquote_plus
 from html import escape
 import xml.etree.ElementTree
 from beaker.middleware import SessionMiddleware
@@ -61,9 +62,11 @@ DEFAULT_THEME_HTML = '''
 
 
 class SiteXML:
-    def __init__(self, session):
+    def __init__(self, environ):
 
-        self.session = session
+        self.environ = environ
+        self.session = environ['beaker.session']
+
         self._response_headers = []
         self._response_body = ''
 
@@ -93,7 +96,7 @@ class SiteXML:
         self._response_body += content
 
     def setEditMode(self):
-        if (not session.get('edit', None)) and (not self.session.get('username', None)):
+        if (not session.get('edit')) and (not self.session.get('username')):
             self.response_headers = ('Cache-Control', 'no-cache, must-revalidate')
             self.editMode = True
 
@@ -136,12 +139,15 @@ class SiteXML:
         '''
 
     def login(self, username, password, edit):
+        m = hashlib.md5()
+
+        password = m.update(password).hexdigest()
         user = self.getUser(username)
         if user:
             if user[2] == password:
                 self.session['username'] = username
                 if edit:
-                    self.session['edit'] = True  # is it different from setEditMode?
+                    self.session['edit'] = True
                 self.response_headers = ('location', '/')
 
     @staticmethod
@@ -162,10 +168,39 @@ class SiteXML:
         else:
             raise FileNotFoundError
 
+    def getPid(self):
+        pid = False
+        d = parse_qs(self.environ['QUERY_STRING'])
+
+        if 'id' in d:
+            pid = d['id']
+        elif self.environ['PATH_INFO '] != '/':
+            if self.environ['PATH_INFO '][0] == '/'
+                alias = self.environ['PATH_INFO '][1:]
+            else:
+                alias = self.environ['PATH_INFO ']
+
+            alias =  unquote_plus(alias)
+            aliasNoEndingSlash =  alias.rstrip('/')
+            pid = self.getPageIdByAlias(aliasNoEndingSlash)
+
+        if not pid:
+            defaultPid = self.getDefaultPid()
+            if not defaultPid:
+                defaultPid = self.getFirstPagePid()
+            pid = defaultPid
+
+        if not pid:
+            raise RuntimeError('Fatal error: no pages in this site')
+        else:
+            return pid
+
+
 def app(environ, start_response):
+
     session = environ['beaker.session']
 
-    sitexml = SiteXML(session)
+    sitexml = SiteXML(environ)
 
     status = '200 OK'
     sitexml.response_headers = [
@@ -188,9 +223,9 @@ def app(environ, start_response):
             else:
                 sitexml.response_body = sitexml.error('siteXML was not saved')
         elif ('cid' in d) and ('content' in d):
-            sitexml.response_body = sitexml.saveContent(d.get('cid'), d.get('content'))
-        elif (not d.get('username', None)) and (not d.get('password', None)):
-            sitexml.response_body = sitexml.login(d['username'], d['password'], d.get('edit', None))
+            sitexml.saveContent(d.get('cid'), d.get('content'))
+        elif (not d.get('username')) and (not d.get('password')):
+            sitexml.response_body = sitexml.login(d['username'], d['password'], d.get('edit'))
 
     elif method == 'GET':
         d = parse_qs(environ['QUERY_STRING'])
@@ -199,7 +234,7 @@ def app(environ, start_response):
             sitexml.logout()
 
         if 'edit' in d:
-            if not d.get('username', None):
+            if not d.get('username'):
                 session['edit'] = True
                 sitexml.response_body = sitexml.page()
             else:
@@ -211,9 +246,9 @@ def app(environ, start_response):
             sitexml.response_body = sitexml.getXML()
         elif 'login' in d:
             sitexml.response_body = sitexml.loginScreen()
-        elif not d.get('cid', None):
+        elif not d.get('cid'):
             sitexml.response_body = sitexml.getContent(d.get('cid'))
-        elif (not d.get('id', None)) and (not d.get('name', None)):
+        elif (not d.get('id')) and (not d.get('name')):
             sitexml.response_body = sitexml.getContentByIdAndName(d.get('id'), d.get('name'))
         else:
             sitexml.response_body = sitexml.page()
