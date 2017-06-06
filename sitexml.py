@@ -31,7 +31,7 @@ import os
 import hashlib
 from urllib.parse import parse_qs, unquote_plus
 from html import escape
-import xml.etree.ElementTree
+import xml.etree.ElementTree as ET
 from beaker.middleware import SessionMiddleware
 
 DEBUG = True
@@ -164,12 +164,12 @@ class SiteXML:
 
     def getObj(self):
         if os.path.isfile(SITEXML):
-            return xml.etree.ElementTree.parse(SITEXML).getroot()
+            return ET.parse(SITEXML).getroot()
         else:
             raise FileNotFoundError
 
     def getPid(self):
-        pid = False
+        pid = None
         d = parse_qs(self.environ['QUERY_STRING'])
 
         if 'id' in d:
@@ -195,6 +195,112 @@ class SiteXML:
         else:
             return pid
 
+    // recursive
+    def getDefaultPid(self, pageObj=None):
+        if not pageObj:
+            pageObj = self.obj
+        defaultPid = None
+        for v, k in enumerate(pageObj):
+            if k.lower() == 'page':
+                attr = self.attributes(v)
+                if attr['startpage'] == 'yes':
+                    defaultPid = attr['id']
+                    break
+                else:
+                    defaultPid = self.getDefaultPid(v)
+                    if defaultPid:
+                        break
+        return defaultPid
+
+
+    " @ param {String} $alias - make sure that it doesn't end with slash - ' / ' "
+    def getPageIdByAlias(self, alias, parent=None):
+        pid = None
+        if not parent:
+            parent = self.obj
+        for v,k in enumerate(parent):
+            if k.lower() == 'page':
+                attr = self.attributes(v)
+                if (not attr.get('alias')) and get(attr['alias']).rstrip() == alias:
+                    pid = attr['id']
+                else:
+                    pid = self.getPageIdByAlias(alias, v)
+                if pid
+                    break
+        return pid
+
+    def getFirstPagePid(self):
+        pid = None
+        for v,k in enumerate(self.obj):
+            if k.lower() == 'page':
+                attr = self.attributes(v)
+                pid = attr['id']
+                break
+
+    def getPageObj(self, pid):
+        if (pid):
+            pageObj = self.obj.findall("//page[@id='$pid']")
+        else:
+            pageObj = self.obj.findall("//page")
+        if pageObj:
+            return pageObj[0]
+        else
+            return None
+
+
+    """
+     param {Object} page object.If not given, $this->pageObj will be used
+     returns {Object} theme by page object
+    """
+    def getTheme(self, pageObj=None):
+        if not pageObj:
+            pageObj = self.pageObj()
+        attr = self.attributes(pageObj)
+        themeId = attr.get('theme')
+        if themeId:
+            themeObj = self.obj.findall("//theme[@id='$themeId']")
+            if not themeObj:
+                self.error("Error: theme with id $themeId does not exist")
+        else:
+            themeObj = self.obj.findall("//theme[contains(translate(@default, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'yes')]")
+            if not themeObj:
+                themeObj = self.obj.findall("//theme")
+        if themeObj:
+            return themeObj[0]
+        else
+            return None
+
+    """
+    @param {Object} theme || If not given, DEFAULT_THEME_HTML will be returned
+    @returns {String} theme html
+    """
+    def getThemeHTML(self, themeObj=None):
+        if not themeObj:
+            self.error('SiteXML error: template does not exist, default template HTML will be used')
+            themeHTML = DEFAULT_THEME_HTML
+        else:
+            attr = self.attributes(themeObj)
+            dir = '' if not attr.get('dir') else attr['dir']
+            path = THEMES_DIR
+            if path[-1] != '/':
+                path += '/'
+            if dir != '': # meaningless
+                path += dir
+            if path[-1] != '/':
+                path += '/'
+            if attr.get('file'):
+                path += attr['file']
+                if os.path.isfile(path)
+                    with open(pathm 'r') as f:
+                        themeHTML = f.read()
+                else:
+                    self.error('SiteXML error: template file does not exist, default template HTML will be used')
+                    themeHTML = DEFAULT_THEME_HTML
+            else:
+                self.error('SiteXML error: template file missing, default template HTML will be used')
+                themeHTML = DEFAULT_THEME_HTML
+
+        return themeHTML
 
 def app(environ, start_response):
 
