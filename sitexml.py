@@ -96,7 +96,7 @@ class SiteXML:
         self._response_body += content
 
     def setEditMode(self):
-        if (not session.get('edit')) and (not self.session.get('username')):
+        if (not self.session.get('edit')) and (not self.session.get('username')):
             self.response_headers = ('Cache-Control', 'no-cache, must-revalidate')
             self.editMode = True
 
@@ -162,7 +162,8 @@ class SiteXML:
     def logout(self):
         self.session.delete()
 
-    def getObj(self):
+    @staticmethod
+    def getObj():
         if os.path.isfile(SITEXML):
             return ET.parse(SITEXML).getroot()
         else:
@@ -174,14 +175,14 @@ class SiteXML:
 
         if 'id' in d:
             pid = d['id']
-        elif self.environ['PATH_INFO '] != '/':
-            if self.environ['PATH_INFO '][0] == '/'
-                alias = self.environ['PATH_INFO '][1:]
+        elif self.environ['PATH_INFO'] != '/':
+            if self.environ['PATH_INFO'][0] == '/':
+                alias = self.environ['PATH_INFO'][1:]
             else:
-                alias = self.environ['PATH_INFO ']
+                alias = self.environ['PATH_INFO']
 
-            alias =  unquote_plus(alias)
-            aliasNoEndingSlash =  alias.rstrip('/')
+            alias = unquote_plus(alias)
+            aliasNoEndingSlash = alias.rstrip('/')
             pid = self.getPageIdByAlias(aliasNoEndingSlash)
 
         if not pid:
@@ -195,7 +196,7 @@ class SiteXML:
         else:
             return pid
 
-    // recursive
+    # recursive
     def getDefaultPid(self, pageObj=None):
         if not pageObj:
             pageObj = self.obj
@@ -212,46 +213,47 @@ class SiteXML:
                         break
         return defaultPid
 
-
     " @ param {String} $alias - make sure that it doesn't end with slash - ' / ' "
+
     def getPageIdByAlias(self, alias, parent=None):
         pid = None
         if not parent:
             parent = self.obj
-        for v,k in enumerate(parent):
+        for v, k in enumerate(parent):
             if k.lower() == 'page':
                 attr = self.attributes(v)
-                if (not attr.get('alias')) and get(attr['alias']).rstrip() == alias:
+                if (not attr.get('alias')) and attr.get('alias').rstrip() == alias:
                     pid = attr['id']
                 else:
                     pid = self.getPageIdByAlias(alias, v)
-                if pid
+                if pid:
                     break
         return pid
 
     def getFirstPagePid(self):
         pid = None
-        for v,k in enumerate(self.obj):
+        for v, k in enumerate(self.obj):
             if k.lower() == 'page':
                 attr = self.attributes(v)
                 pid = attr['id']
                 break
+        return pid
 
     def getPageObj(self, pid):
-        if (pid):
+        if pid:
             pageObj = self.obj.findall("//page[@id='$pid']")
         else:
             pageObj = self.obj.findall("//page")
         if pageObj:
             return pageObj[0]
-        else
+        else:
             return None
-
 
     """
      param {Object} page object.If not given, $this->pageObj will be used
      returns {Object} theme by page object
     """
+
     def getTheme(self, pageObj=None):
         if not pageObj:
             pageObj = self.pageObj()
@@ -262,36 +264,38 @@ class SiteXML:
             if not themeObj:
                 self.error("Error: theme with id $themeId does not exist")
         else:
-            themeObj = self.obj.findall("//theme[contains(translate(@default, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'yes')]")
+            themeObj = self.obj.findall(
+                "//theme[contains(translate(@default, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'yes')]")
             if not themeObj:
                 themeObj = self.obj.findall("//theme")
         if themeObj:
             return themeObj[0]
-        else
+        else:
             return None
 
     """
     @param {Object} theme || If not given, DEFAULT_THEME_HTML will be returned
     @returns {String} theme html
     """
+
     def getThemeHTML(self, themeObj=None):
         if not themeObj:
             self.error('SiteXML error: template does not exist, default template HTML will be used')
             themeHTML = DEFAULT_THEME_HTML
         else:
             attr = self.attributes(themeObj)
-            dir = '' if not attr.get('dir') else attr['dir']
+            dir_attr = '' if not attr.get('dir') else attr['dir']
             path = THEMES_DIR
             if path[-1] != '/':
                 path += '/'
-            if dir != '': # meaningless
-                path += dir
+            if dir_attr != '': # meaningless
+                path += dir_attr
             if path[-1] != '/':
                 path += '/'
             if attr.get('file'):
                 path += attr['file']
-                if os.path.isfile(path)
-                    with open(pathm 'r') as f:
+                if os.path.isfile(path):
+                    with open(path, 'r') as f:
                         themeHTML = f.read()
                 else:
                     self.error('SiteXML error: template file does not exist, default template HTML will be used')
@@ -302,8 +306,65 @@ class SiteXML:
 
         return themeHTML
 
-def app(environ, start_response):
+    def getTitle(self):
+        pageObj = self.pageObj
+        attr = self.attribute(pageObj)
+        return '' if not attr.get('title') else attr['title']
 
+    def getSiteName(self):
+        attr = self.attributes(self.obj)
+        if attr.get('name'):
+            siteName = attr['name']
+        else:
+            siteName = self.environ['SERVER_NAME']
+        return siteName
+
+    def getSiteBasePath(self):
+        attr = self.attributes(self.obj)
+        if attr.get('base_path'):
+            basePath = attr['base_path']
+        else:
+            basePath = None
+        return basePath
+
+    def getThemePath(self, themeObj = None):
+        if not themeObj:
+            themeObj = self.themeObj
+        attr = self.attributes(themeObj)
+        if attr.get('dir'):
+            dir_attr = attr['dir']
+            if dir_attr[-1] != '/':
+                dir_attr += '/'
+        else:
+            dir_attr = ''
+        if self.basePath:
+            fullPath = '/' + self.basePath + '/' + THEMES_DIR + dir_attr
+        else:
+            fullPath = '/' + THEMES_DIR + dir_attr
+        return fullPath
+
+    def replaceMacroCommands(self, HTML):
+        macroCommands = [
+            '<%THEME_PATH%>',
+            '<%SITENAME%>',
+            '<%TITLE%>',
+            '<%META%>',
+            '<%NAVI%>'
+        ]
+        replacement = [
+            self.getThemePath,
+            self.getSiteName,
+            self.getTitle,
+            self.getMetaHTML,
+            self.getNavi
+        ]
+
+        edits = zip(macroCommands, replacement)
+        for search, replace in edits:
+            HTML = HTML.replace(search, replace())
+        return HTML
+
+def app(environ, start_response):
     session = environ['beaker.session']
 
     sitexml = SiteXML(environ)
