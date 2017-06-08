@@ -201,7 +201,7 @@ class SiteXML:
         if not pageObj:
             pageObj = self.obj
         defaultPid = None
-        for v, k in enumerate(pageObj):
+        for v, k in pageObj.items():
             if k.lower() == 'page':
                 attr = self.attributes(v)
                 if attr['startpage'] == 'yes':
@@ -219,7 +219,7 @@ class SiteXML:
         pid = None
         if not parent:
             parent = self.obj
-        for v, k in enumerate(parent):
+        for v, k in parent.items():
             if k.lower() == 'page':
                 attr = self.attributes(v)
                 if (not attr.get('alias')) and attr.get('alias').rstrip() == alias:
@@ -232,7 +232,7 @@ class SiteXML:
 
     def getFirstPagePid(self):
         pid = None
-        for v, k in enumerate(self.obj):
+        for v, k in self.obj.items():
             if k.lower() == 'page':
                 attr = self.attributes(v)
                 pid = attr['id']
@@ -363,6 +363,27 @@ class SiteXML:
         for search, replace in edits:
             HTML = HTML.replace(search, replace())
         return HTML
+
+    def getMetaHTML(self, pageObj=None):
+        if not pageObj:
+            pageObj = self.getPageObj()
+        metaHTML = ''
+        for v, k in self.obj.items():
+            if k.lower() == 'meta':
+                metaHTML += self.singleMetaHTML(v)
+        for v, k in pageObj.items():
+            if k.lower() == 'meta':
+                metaHTML += self.singleMetaHTML(v)
+        return metaHTML
+
+    def singleMetaHTML(self, metaObj):
+        attr = self.attributes(metaObj)
+        metaHTML = '<meta'
+        if attr:
+            for v, k in attr.items():
+                metaHTML += ' ' + k + '="' + v +'"'
+        metaHTML += '>'
+        return metaHTML
 
 def app(environ, start_response):
     session = environ['beaker.session']
