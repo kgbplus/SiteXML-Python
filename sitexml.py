@@ -201,7 +201,7 @@ class SiteXML:
         if not pageObj:
             pageObj = self.obj
         defaultPid = None
-        for v, k in pageObj.items():
+        for k, v in pageObj.items():
             if k.lower() == 'page':
                 attr = self.attributes(v)
                 if attr['startpage'] == 'yes':
@@ -219,7 +219,7 @@ class SiteXML:
         pid = None
         if not parent:
             parent = self.obj
-        for v, k in parent.items():
+        for k, v in parent.items():
             if k.lower() == 'page':
                 attr = self.attributes(v)
                 if (not attr.get('alias')) and attr.get('alias').rstrip() == alias:
@@ -232,7 +232,7 @@ class SiteXML:
 
     def getFirstPagePid(self):
         pid = None
-        for v, k in self.obj.items():
+        for k, v in self.obj.items():
             if k.lower() == 'page':
                 attr = self.attributes(v)
                 pid = attr['id']
@@ -368,10 +368,10 @@ class SiteXML:
         if not pageObj:
             pageObj = self.getPageObj()
         metaHTML = ''
-        for v, k in self.obj.items():
+        for k, v in self.obj.items():
             if k.lower() == 'meta':
                 metaHTML += self.singleMetaHTML(v)
-        for v, k in pageObj.items():
+        for k, v in pageObj.items():
             if k.lower() == 'meta':
                 metaHTML += self.singleMetaHTML(v)
         return metaHTML
@@ -380,10 +380,48 @@ class SiteXML:
         attr = self.attributes(metaObj)
         metaHTML = '<meta'
         if attr:
-            for v, k in attr.items():
+            for k, v in attr.items():
                 metaHTML += ' ' + k + '="' + v +'"'
         metaHTML += '>'
         return metaHTML
+
+    def replaceThemeContent(self, HTML):
+        return self.replaceContent(HTML, 'theme')
+
+    def replacePageContent(self, HTML):
+        return self.replaceContent(HTML, 'page')
+
+    def replaceContent(self, HTML, where):
+        if where == 'page':
+            obj = self.pageObj
+        elif where == 'theme':
+            obj = self.themeObj
+        else:
+            return None
+        if obj:
+            for k, v in obj.items():
+                if k.lower() == 'content':
+                    attr = self.attributes(v)
+                    name = attr['name']
+                    search = '<%CONTENT(' + name + ')%>'
+                    if HTML.find(search) != -1:
+                        if attr.get('type') == 'module':
+                            file = MODULES_DIR + v
+                            if os.path.isfile(file):
+                                with open(file, 'r') as f:
+                                    content = f.read() # evaluate???
+                            else:
+                                self.error('Error: module file ' + attr['file'] + ' does not exist')
+                    else:
+                        file = CONTENT_DIR + v
+                        if os.path.isfile(file):
+                            with open(file, 'r') as f:
+                                contents = f.read()
+                            contents = '<div class="siteXML-content" cid="' + attr['id'] + '" cname="' + name + '">' + contents + '</div>'
+                        else:
+                            self.error('Error: content file ' + attr['file'] + ' does not exist')
+                    HTML = HTML.replace(search, contents)
+        return HTML
 
 def app(environ, start_response):
     session = environ['beaker.session']
