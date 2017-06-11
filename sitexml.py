@@ -288,7 +288,7 @@ class SiteXML:
             path = THEMES_DIR
             if path[-1] != '/':
                 path += '/'
-            if dir_attr != '': # meaningless
+            if dir_attr != '':  # meaningless
                 path += dir_attr
             if path[-1] != '/':
                 path += '/'
@@ -327,7 +327,7 @@ class SiteXML:
             basePath = None
         return basePath
 
-    def getThemePath(self, themeObj = None):
+    def getThemePath(self, themeObj=None):
         if not themeObj:
             themeObj = self.themeObj
         attr = self.attributes(themeObj)
@@ -381,7 +381,7 @@ class SiteXML:
         metaHTML = '<meta'
         if attr:
             for k, v in attr.items():
-                metaHTML += ' ' + k + '="' + v +'"'
+                metaHTML += ' ' + k + '="' + v + '"'
         metaHTML += '>'
         return metaHTML
 
@@ -409,7 +409,7 @@ class SiteXML:
                             file = MODULES_DIR + v
                             if os.path.isfile(file):
                                 with open(file, 'r') as f:
-                                    content = f.read() # evaluate???
+                                    contents = f.read()  # evaluate???
                             else:
                                 self.error('Error: module file ' + attr['file'] + ' does not exist')
                     else:
@@ -417,11 +417,114 @@ class SiteXML:
                         if os.path.isfile(file):
                             with open(file, 'r') as f:
                                 contents = f.read()
-                            contents = '<div class="siteXML-content" cid="' + attr['id'] + '" cname="' + name + '">' + contents + '</div>'
+                            contents = '<div class="siteXML-content" cid="' + attr[
+                                'id'] + '" cname="' + name + '">' + contents + '</div>'
                         else:
                             self.error('Error: content file ' + attr['file'] + ' does not exist')
                     HTML = HTML.replace(search, contents)
         return HTML
+
+    def getNavi(self, obj=None, maxlevel=0, level=0):
+        level += level
+        if not obj:
+            obj = self.obj
+        HTML = ''
+        if maxlevel == 0 or maxlevel >= level:
+            for k, v in obj:
+                if l.lower() == 'page':
+                    attr = self.attributes(v)
+                    if attr.get('nonavi'):
+                        if attr.get('nonavi').lower() == 'yes':
+                            continue
+                    liClass = ' class="siteXML-current"' if attr['id'] == self.pid else ''
+                    href = '/' + attr['alias'] if attr.get['alias'] else '/?id=' + attr['id']
+                    if self.basePath:
+                        href = '/' + self.basePath + href
+
+                    hasContent = False
+                    for i in v:
+                        if i.lower() == 'content':
+                            hasContent = True
+                            break
+                    if hasContent:
+                        HTML += '<li' + liClass + ' pid="' + attr['id'] + '"><a href="' + href + '" pid="' + attr[
+                            'id'] + '">' + attr['name'] + '</a>'
+                    else:
+                        HTML += '<li' + liClass + 'pid="' + attr['id'] + '">' + attr['name'] + ''
+                    HTML += self.getNavi(v, maxlevel, level)
+                    HTML += '</li>'
+            if HTML != '':
+                HTML = '<ul class=\"siteXML-navi level-$level\">' + HTML + '</ul>'
+        return HTML
+
+    def replaceNavi(self, HTML):
+        HTML = HTML.replace('<%NAVI%>', self.getNavi())
+        pos = HTML.find('<%NAVI')
+        while pos:
+            pos1 = HTML.find('(', pos + 1)
+            pos2 = HTML.find(')', pos + 1)
+            if pos1 and pos2:
+                arg = HTML[pos1 + 1:pos2 - pos1 - 1]
+                arg = arg.split(',')
+            else:
+                arg = None
+            if arg:
+                needle = "<%NAVI(" + arg[0] + "," + arg[1] + ")%>"
+                pageObj = self.getPageObj(arg[0])
+                replace = self.getNavi(pageObj, arg[0])
+                HTML = HTML.replace(needle, replace)
+            pos = HTML.find('<%NAVI', pos + 1)
+        return HTML
+
+    def replacePlink(self, HTML):
+        pos = HTML.find('<%PLINK')
+        while pos:
+            pos1 = HTML.find('(', pos + 1)
+            pos2 = HTML.find(')', pos + 1)
+            if pos1 and pos2:
+                arg = HTML[pos1 + 1:pos2 - pos1 - 1]
+            else:
+                arg = None
+            if arg:
+                needle = "<%PLINK(" + arg + ")%>"
+                replace = self.getPlink(arg)
+                HTML = HTML.replace(needle, replace)
+            pos = HTML.find('<%PLINK', pos + 1)
+            return HTML
+
+    def getPlink(self, id):
+        pageObj = self.getPageObj(id)
+        attr = self.attributes(pageObj)
+        if attr.get('alias'):
+            href = '/' + attr['alias']
+        else:
+            href = '/?id=' + id
+        pname = attr['name']
+        html = '<a href="' + href + '" plink="' + id + '" pid="' + id + '">' + pname + '</a>'
+        return html
+
+    def appendScripts(self, HTML):
+        pos = HTML.lower().find('</body>')
+        scripts = '<!--<script src="' + (
+            self.basePath + '/' if self.basePath else '') + '/js/jquery-2.1.3.min.js"></script>-->' + '<script src="' + (
+                      self.basePath + '/' if self.basePath else '') + '/js/sitexml.js"></script>' + AJAX_BROWSING_SCRIPT + (
+                      CONTENT_EDIT_SCRIPT if self.editMode() else '')
+        if pos:
+            HTML = HTML[:pos] + scripts + HTML[pos:]
+        else:
+            HTML = scripts
+        return HTML
+
+    def page(self):
+        pageHTML = self.getThemeHTML(self.themeObj)
+        pageHTML = self.replaceNavi(pageHTML)
+        pageHTML = self.replacePageContent(pageHTML)
+        pageHTML = self.replaceThemeContent(pageHTML)
+        pageHTML = self.replaceMacroCommands(pageHTML)
+        pageHTML = self.replacePlink(pageHTML)
+        pageHTML = self.appendScripts(pageHTML)
+        return pageHTML
+
 
 def app(environ, start_response):
     session = environ['beaker.session']
