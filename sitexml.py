@@ -67,7 +67,8 @@ class SiteXML:
         self.environ = environ
         self.session = environ['beaker.session']
 
-        self._response_headers = []
+        self.status = '200 OK'
+        self._response_headers = {}
         self._response_body = ''
 
         self.editMode = False
@@ -75,7 +76,7 @@ class SiteXML:
         self.setEditMode()
         self.obj = self.getObj()
         self.pid = self.getPid()
-        self.pageObj = self.getpageObj(self.pid)
+        self.pageObj = self.getPageObj(self.pid)
         self.themeObj = self.getTheme()
         self.basePath = self.getSiteBasePath()
 
@@ -308,7 +309,7 @@ class SiteXML:
 
     def getTitle(self):
         pageObj = self.pageObj
-        attr = self.attribute(pageObj)
+        attr = self.attributes(pageObj)
         return '' if not attr.get('title') else attr['title']
 
     def getSiteName(self):
@@ -366,7 +367,7 @@ class SiteXML:
 
     def getMetaHTML(self, pageObj=None):
         if not pageObj:
-            pageObj = self.getPageObj()
+            pageObj = self.pageObj
         metaHTML = ''
         for k, v in self.obj.items():
             if k.lower() == 'meta':
@@ -431,7 +432,7 @@ class SiteXML:
         HTML = ''
         if maxlevel == 0 or maxlevel >= level:
             for k, v in obj:
-                if l.lower() == 'page':
+                if k.lower() == 'page':
                     attr = self.attributes(v)
                     if attr.get('nonavi'):
                         if attr.get('nonavi').lower() == 'yes':
@@ -508,7 +509,7 @@ class SiteXML:
         scripts = '<!--<script src="' + (
             self.basePath + '/' if self.basePath else '') + '/js/jquery-2.1.3.min.js"></script>-->' + '<script src="' + (
                       self.basePath + '/' if self.basePath else '') + '/js/sitexml.js"></script>' + AJAX_BROWSING_SCRIPT + (
-                      CONTENT_EDIT_SCRIPT if self.editMode() else '')
+                      CONTENT_EDIT_SCRIPT if self.editMode else '')
         if pos:
             HTML = HTML[:pos] + scripts + HTML[pos:]
         else:
@@ -525,13 +526,75 @@ class SiteXML:
         pageHTML = self.appendScripts(pageHTML)
         return pageHTML
 
+    "@param {String} $error"
+    def error(self, error):
+        if DEBUG:
+            self.response_body = error + '\n'
+
+    "@param {SimpleXML Object} $obj"
+    def attributes(self, obj):
+        if not obj:
+            return None
+        attr = obj.attrib
+        newattr = {}
+        for k, v in attr:
+            newattr[k.lower()] = v
+        return newattr
+
+    def getXML(self):
+        with open(SITEXML, 'r') as f:
+            return f.read()
+
+    def saveXML(self, xmlstr):
+        with open(SITEXML, 'w') as f:
+            return f.write(xmlstr)
+
+    def saveContent(self, cid, content):
+        file = self.obj.findall("//content[@id='" + cid + "']")
+        file = CONTENT_DIR + file[0]
+        if os.path.isfile(file):
+            try:
+                with open(file, 'w') as f:
+                    f.write(content)
+                self.response_body = 'Content saved'
+            except:
+                self.response_headers = '500 Server Error'
+                self.error('Error: Content not saved: ' + file)
+        else:
+            self.response_headers = '404 Not Found'
+            self.error('Error: Content file ' + file + ' does not exist')
+
+    def getContentByIdAndName(self, id, name):
+        c = self.obj.findall("//page[@id='" + id + "']/content[@name='" + name + "']")
+        attr = self.attributes(c[0])
+        cid = attr['id']
+        return self.getContent(cid, c)
+
+    """
+    @param {Integer | String} $cid - content id
+    @param {XML Object} $cobj - not required; content node object
+    """
+    def getContent(self, cid, cobj = None):
+        if not cobj:
+            file = self.obj.findall("//content[@id='" + cid + "']")
+        else:
+            file = cobj
+
+        file = CONTENT_DIR + file[0]
+        if os.path.isfile(file):
+            with open(file, 'r') as f:
+                content = f.read()
+            content = self.replacePlink(content)
+        else:
+            content = None
+        return content
+
 
 def app(environ, start_response):
     session = environ['beaker.session']
 
     sitexml = SiteXML(environ)
 
-    status = '200 OK'
     sitexml.response_headers = [
         ('Content-Type', 'text/html; charset=utf-8'),
     ]
@@ -583,13 +646,13 @@ def app(environ, start_response):
             sitexml.response_body = sitexml.page()
 
     else:
-        status = '405 Method Not Allowed'
+        sitexml.status = '405 Method Not Allowed'
         sitexml.response_headers = [
             ('Content-Type', 'text/html; charset=utf-8'),
             ('Allow', 'GET, POST'),
         ]
 
-    start_response(status, sitexml.response_headers)
+    start_response(sitexml.status, sitexml.response_headers)
     return [sitexml.response_body]
 
 
