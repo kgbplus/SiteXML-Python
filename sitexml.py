@@ -30,9 +30,10 @@ SOFTWARE.
 import os
 import hashlib
 from urllib.parse import parse_qs, unquote_plus
-from html import escape
-import xml.etree.ElementTree as ET
+import lxml.etree as ET
 from beaker.middleware import SessionMiddleware
+import static
+import pdb
 
 DEBUG = True
 SITEXML = '.site.xml'
@@ -61,6 +62,12 @@ DEFAULT_THEME_HTML = '''
     '''
 
 
+def xml_pairs(root):
+    "suppliemental function - replacement of php's foreach ($obj as $k => $v)"
+    for child in root.iterchildren():
+        yield child.tag, child
+
+
 class SiteXML:
     def __init__(self, environ):
 
@@ -68,7 +75,7 @@ class SiteXML:
         self.session = environ['beaker.session']
 
         self.status = '200 OK'
-        self._response_headers = {}
+        self._response_headers = []
         self._response_body = ''
 
         self.editMode = False
@@ -86,7 +93,7 @@ class SiteXML:
 
     @response_headers.setter
     def response_headers(self, header):
-        self._response_headers.update(header)
+        self._response_headers += header
 
     @property
     def response_body(self):
@@ -97,7 +104,7 @@ class SiteXML:
         self._response_body += content
 
     def setEditMode(self):
-        if (not self.session.get('edit')) and (not self.session.get('username')):
+        if ('edit' in self.session) and ('username' in self.session):
             self.response_headers = ('Cache-Control', 'no-cache, must-revalidate')
             self.editMode = True
 
@@ -186,45 +193,44 @@ class SiteXML:
             aliasNoEndingSlash = alias.rstrip('/')
             pid = self.getPageIdByAlias(aliasNoEndingSlash)
 
-        if not pid:
+        if pid is None:
             defaultPid = self.getDefaultPid()
-            if not defaultPid:
+            if defaultPid is None:
                 defaultPid = self.getFirstPagePid()
             pid = defaultPid
 
-        if not pid:
+        if pid is None:
             raise RuntimeError('Fatal error: no pages in this site')
         else:
             return pid
 
-    # recursive
     def getDefaultPid(self, pageObj=None):
-        if not pageObj:
+        "recursive"
+        if pageObj is None:
             pageObj = self.obj
         defaultPid = None
-        for k, v in pageObj.items():
+        for k, v in xml_pairs(pageObj):
             if k.lower() == 'page':
                 attr = self.attributes(v)
-                if attr['startpage'] == 'yes':
-                    defaultPid = attr['id']
+                if attr.get('startpage') == 'yes':
+                    defaultPid = attr.get('id')
                     break
                 else:
                     defaultPid = self.getDefaultPid(v)
-                    if defaultPid:
+                    if defaultPid is not None:
                         break
         return defaultPid
 
-    " @ param {String} $alias - make sure that it doesn't end with slash - ' / ' "
-
     def getPageIdByAlias(self, alias, parent=None):
+        " @ param {String} $alias - make sure that it doesn't end with slash - ' / ' "
         pid = None
-        if not parent:
+        if parent is None:
             parent = self.obj
-        for k, v in parent.items():
+        for k, v in xml_pairs(parent):
             if k.lower() == 'page':
                 attr = self.attributes(v)
-                if (not attr.get('alias')) and attr.get('alias').rstrip() == alias:
-                    pid = attr['id']
+                if attr.get('alias') and attr.get('alias').rstrip() == alias:
+                    pid = attr.get('id')
                 else:
                     pid = self.getPageIdByAlias(alias, v)
                 if pid:
@@ -233,59 +239,57 @@ class SiteXML:
 
     def getFirstPagePid(self):
         pid = None
-        for k, v in self.obj.items():
+        for k, v in xml_pairs(self.obj):
             if k.lower() == 'page':
                 attr = self.attributes(v)
-                pid = attr['id']
+                pid = attr.get('id')
                 break
         return pid
 
     def getPageObj(self, pid):
-        if pid:
-            pageObj = self.obj.findall("//page[@id='$pid']")
+        if pid is not None:
+            pageObj = self.obj.xpath(".//page[@id='" + pid + "']")
         else:
-            pageObj = self.obj.findall("//page")
-        if pageObj:
+            pageObj = self.obj.xpath(".//page")
+        if pageObj is not None:
             return pageObj[0]
         else:
             return None
 
-    """
-     param {Object} page object.If not given, $this->pageObj will be used
-     returns {Object} theme by page object
-    """
-
     def getTheme(self, pageObj=None):
-        if not pageObj:
-            pageObj = self.pageObj()
+        """
+         param {Object} page object.If not given, $this->pageObj will be used
+         returns {Object} theme by page object
+        """
+        if pageObj is None:
+            pageObj = self.pageObj
         attr = self.attributes(pageObj)
         themeId = attr.get('theme')
-        if themeId:
-            themeObj = self.obj.findall("//theme[@id='$themeId']")
-            if not themeObj:
-                self.error("Error: theme with id $themeId does not exist")
+        if themeId is not None:
+            themeObj = self.obj.xpath(".//theme[@id='" + themeId + "']")
+            if themeObj is None:
+                self.error("Error: theme with id " + themeId + "does not exist")
         else:
-            themeObj = self.obj.findall(
-                "//theme[contains(translate(@default, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'yes')]")
-            if not themeObj:
-                themeObj = self.obj.findall("//theme")
-        if themeObj:
+            themeObj = self.obj.xpath(
+                ".//theme[contains(translate(@default, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'yes')]")
+            if themeObj is None:
+                themeObj = self.obj.xpath(".//theme")
+        if themeObj is not None and len(themeObj) > 0:
             return themeObj[0]
         else:
             return None
 
-    """
-    @param {Object} theme || If not given, DEFAULT_THEME_HTML will be returned
-    @returns {String} theme html
-    """
-
     def getThemeHTML(self, themeObj=None):
-        if not themeObj:
+        """
+        @param {Object} theme || If not given, DEFAULT_THEME_HTML will be returned
+        @returns {String} theme html
+        """
+        if themeObj is None:
             self.error('SiteXML error: template does not exist, default template HTML will be used')
             themeHTML = DEFAULT_THEME_HTML
         else:
             attr = self.attributes(themeObj)
-            dir_attr = '' if not attr.get('dir') else attr['dir']
+            dir_attr = '' if 'dir' not in attr else attr['dir']
             path = THEMES_DIR
             if path[-1] != '/':
                 path += '/'
@@ -293,7 +297,7 @@ class SiteXML:
                 path += dir_attr
             if path[-1] != '/':
                 path += '/'
-            if attr.get('file'):
+            if 'file' in attr:
                 path += attr['file']
                 if os.path.isfile(path):
                     with open(path, 'r') as f:
@@ -310,11 +314,11 @@ class SiteXML:
     def getTitle(self):
         pageObj = self.pageObj
         attr = self.attributes(pageObj)
-        return '' if not attr.get('title') else attr['title']
+        return '' if 'title' not in attr else attr['title']
 
     def getSiteName(self):
         attr = self.attributes(self.obj)
-        if attr.get('name'):
+        if 'name' in attr:
             siteName = attr['name']
         else:
             siteName = self.environ['SERVER_NAME']
@@ -322,17 +326,17 @@ class SiteXML:
 
     def getSiteBasePath(self):
         attr = self.attributes(self.obj)
-        if attr.get('base_path'):
+        if 'base_path' in attr:
             basePath = attr['base_path']
         else:
             basePath = None
         return basePath
 
     def getThemePath(self, themeObj=None):
-        if not themeObj:
+        if themeObj is None:
             themeObj = self.themeObj
         attr = self.attributes(themeObj)
-        if attr.get('dir'):
+        if 'dir' in attr:
             dir_attr = attr['dir']
             if dir_attr[-1] != '/':
                 dir_attr += '/'
@@ -366,13 +370,13 @@ class SiteXML:
         return HTML
 
     def getMetaHTML(self, pageObj=None):
-        if not pageObj:
+        if pageObj is None:
             pageObj = self.pageObj
         metaHTML = ''
-        for k, v in self.obj.items():
+        for k, v in xml_pairs(self.obj):
             if k.lower() == 'meta':
                 metaHTML += self.singleMetaHTML(v)
-        for k, v in pageObj.items():
+        for k, v in xml_pairs(pageObj):
             if k.lower() == 'meta':
                 metaHTML += self.singleMetaHTML(v)
         return metaHTML
@@ -380,7 +384,7 @@ class SiteXML:
     def singleMetaHTML(self, metaObj):
         attr = self.attributes(metaObj)
         metaHTML = '<meta'
-        if attr:
+        if len(attr):
             for k, v in attr.items():
                 metaHTML += ' ' + k + '="' + v + '"'
         metaHTML += '>'
@@ -399,77 +403,78 @@ class SiteXML:
             obj = self.themeObj
         else:
             return None
-        if obj:
-            for k, v in obj.items():
+        if obj is not None:
+            for k, v in xml_pairs(obj):
                 if k.lower() == 'content':
+                    contents = ''
                     attr = self.attributes(v)
-                    name = attr['name']
+                    name = attr.get('name')
                     search = '<%CONTENT(' + name + ')%>'
                     if HTML.find(search) != -1:
                         if attr.get('type') == 'module':
-                            file = MODULES_DIR + v
+                            file = MODULES_DIR + v.text
                             if os.path.isfile(file):
                                 with open(file, 'r') as f:
                                     contents = f.read()  # evaluate???
                             else:
-                                self.error('Error: module file ' + attr['file'] + ' does not exist')
-                    else:
-                        file = CONTENT_DIR + v
-                        if os.path.isfile(file):
-                            with open(file, 'r') as f:
-                                contents = f.read()
-                            contents = '<div class="siteXML-content" cid="' + attr[
-                                'id'] + '" cname="' + name + '">' + contents + '</div>'
+                                self.error('Error: module file ' + file + ' does not exist')
                         else:
-                            self.error('Error: content file ' + attr['file'] + ' does not exist')
-                    HTML = HTML.replace(search, contents)
+                            file = CONTENT_DIR + v.text
+                            if os.path.isfile(file):
+                                with open(file, 'r') as f:
+                                    contents = f.read()
+                                contents = '<div class="siteXML-content" cid="' + attr[
+                                    'id'] + '" cname="' + name + '">' + contents + '</div>'
+                            else:
+                                self.error('Error: content file ' + file + ' does not exist')
+                        HTML = HTML.replace(search, contents)
         return HTML
 
     def getNavi(self, obj=None, maxlevel=0, level=0):
         level += level
-        if not obj:
+        if obj is None:
             obj = self.obj
         HTML = ''
         if maxlevel == 0 or maxlevel >= level:
-            for k, v in obj:
+            for k, v in xml_pairs(obj):
                 if k.lower() == 'page':
                     attr = self.attributes(v)
-                    if attr.get('nonavi'):
+                    if 'nonavi' in attr:
                         if attr.get('nonavi').lower() == 'yes':
                             continue
-                    liClass = ' class="siteXML-current"' if attr['id'] == self.pid else ''
-                    href = '/' + attr['alias'] if attr.get['alias'] else '/?id=' + attr['id']
-                    if self.basePath:
+                    liClass = ' class="siteXML-current"' if attr.get('id') == self.pid else ''
+                    href = '/' + attr['alias'] if 'alias' in attr else '/?id=' + attr.get('id')
+                    if self.basePath is not None:
                         href = '/' + self.basePath + href
 
                     hasContent = False
-                    for i in v:
-                        if i.lower() == 'content':
+                    for i in v.iterchildren():
+                        if i.tag.lower() == 'content':
                             hasContent = True
                             break
                     if hasContent:
-                        HTML += '<li' + liClass + ' pid="' + attr['id'] + '"><a href="' + href + '" pid="' + attr[
-                            'id'] + '">' + attr['name'] + '</a>'
+                        HTML += '<li' + liClass + ' pid="' + attr.get(
+                            'id') + '"><a href="' + href + '" pid="' + attr.get('id') + '">' + attr['name'] + '</a>'
                     else:
-                        HTML += '<li' + liClass + 'pid="' + attr['id'] + '">' + attr['name'] + ''
+                        HTML += '<li' + liClass + 'pid="' + attr.get('id') + '">' + attr.get('name') + ''
                     HTML += self.getNavi(v, maxlevel, level)
                     HTML += '</li>'
             if HTML != '':
-                HTML = '<ul class=\"siteXML-navi level-$level\">' + HTML + '</ul>'
+                HTML = '<ul class=\"siteXML-navi level-' + str(level) + '\">' + HTML + '</ul>'
         return HTML
 
     def replaceNavi(self, HTML):
         HTML = HTML.replace('<%NAVI%>', self.getNavi())
         pos = HTML.find('<%NAVI')
-        while pos:
+        while pos >= 0:
             pos1 = HTML.find('(', pos + 1)
             pos2 = HTML.find(')', pos + 1)
-            if pos1 and pos2:
+            if pos1 >= 0 and pos2 >= 0:
                 arg = HTML[pos1 + 1:pos2 - pos1 - 1]
                 arg = arg.split(',')
             else:
                 arg = None
-            if arg:
+            if arg is not None:
                 needle = "<%NAVI(" + arg[0] + "," + arg[1] + ")%>"
                 pageObj = self.getPageObj(arg[0])
                 replace = self.getNavi(pageObj, arg[0])
@@ -479,10 +484,10 @@ class SiteXML:
 
     def replacePlink(self, HTML):
         pos = HTML.find('<%PLINK')
-        while pos:
+        while pos >= 0:
             pos1 = HTML.find('(', pos + 1)
             pos2 = HTML.find(')', pos + 1)
-            if pos1 and pos2:
+            if pos1 >= 0 and pos2 >= 0:
                 arg = HTML[pos1 + 1:pos2 - pos1 - 1]
             else:
                 arg = None
@@ -491,16 +496,16 @@ class SiteXML:
                 replace = self.getPlink(arg)
                 HTML = HTML.replace(needle, replace)
             pos = HTML.find('<%PLINK', pos + 1)
-            return HTML
+        return HTML
 
     def getPlink(self, id):
         pageObj = self.getPageObj(id)
         attr = self.attributes(pageObj)
-        if attr.get('alias'):
+        if 'alias' in attr:
             href = '/' + attr['alias']
         else:
             href = '/?id=' + id
-        pname = attr['name']
+        pname = attr.get('name')
         html = '<a href="' + href + '" plink="' + id + '" pid="' + id + '">' + pname + '</a>'
         return html
 
@@ -510,7 +515,7 @@ class SiteXML:
             self.basePath + '/' if self.basePath else '') + '/js/jquery-2.1.3.min.js"></script>-->' + '<script src="' + (
                       self.basePath + '/' if self.basePath else '') + '/js/sitexml.js"></script>' + AJAX_BROWSING_SCRIPT + (
                       CONTENT_EDIT_SCRIPT if self.editMode else '')
-        if pos:
+        if pos >= 0:
             HTML = HTML[:pos] + scripts + HTML[pos:]
         else:
             HTML = scripts
@@ -526,16 +531,16 @@ class SiteXML:
         pageHTML = self.appendScripts(pageHTML)
         return pageHTML
 
-    "@param {String} $error"
     def error(self, error):
+        "@param {String} $error"
         if DEBUG:
             self.response_body = error + '\n'
 
-    "@param {SimpleXML Object} $obj"
     def attributes(self, obj):
-        if not obj:
-            return None
-        attr = obj.attrib
+        "@param {SimpleXML Object} $obj"
+        if obj is None:
+            return {}
+        attr = obj.items()
         newattr = {}
         for k, v in attr:
             newattr[k.lower()] = v
@@ -550,7 +555,7 @@ class SiteXML:
             return f.write(xmlstr)
 
     def saveContent(self, cid, content):
-        file = self.obj.findall("//content[@id='" + cid + "']")
+        file = self.obj.xpath(".//content[@id='" + cid + "']")
         file = CONTENT_DIR + file[0]
         if os.path.isfile(file):
             try:
@@ -558,25 +563,25 @@ class SiteXML:
                     f.write(content)
                 self.response_body = 'Content saved'
             except:
-                self.response_headers = '500 Server Error'
+                self.status = '500 Server Error'
                 self.error('Error: Content not saved: ' + file)
         else:
-            self.response_headers = '404 Not Found'
+            self.status = '404 Not Found'
             self.error('Error: Content file ' + file + ' does not exist')
 
     def getContentByIdAndName(self, id, name):
-        c = self.obj.findall("//page[@id='" + id + "']/content[@name='" + name + "']")
+        c = self.obj.xpath(".//page[@id='" + id + "']/content[@name='" + name + "']")
         attr = self.attributes(c[0])
-        cid = attr['id']
+        cid = attr.get('id')
         return self.getContent(cid, c)
 
-    """
-    @param {Integer | String} $cid - content id
-    @param {XML Object} $cobj - not required; content node object
-    """
-    def getContent(self, cid, cobj = None):
-        if not cobj:
-            file = self.obj.findall("//content[@id='" + cid + "']")
+    def getContent(self, cid, cobj=None):
+        """
+        @param {Integer | String} $cid - content id
+        @param {XML Object} $cobj - not required; content node object
+        """
+        if cobj is None:
+            file = self.obj.xpath(".//content[@id='" + cid + "']")
         else:
             file = cobj
 
@@ -626,7 +631,7 @@ def app(environ, start_response):
             sitexml.logout()
 
         if 'edit' in d:
-            if not d.get('username'):
+            if 'username' in d:
                 session['edit'] = True
                 sitexml.response_body = sitexml.page()
             else:
@@ -638,9 +643,9 @@ def app(environ, start_response):
             sitexml.response_body = sitexml.getXML()
         elif 'login' in d:
             sitexml.response_body = sitexml.loginScreen()
-        elif not d.get('cid'):
+        elif 'cid' in d:
             sitexml.response_body = sitexml.getContent(d.get('cid'))
-        elif (not d.get('id')) and (not d.get('name')):
+        elif ('id' in d) and ('name' in d):
             sitexml.response_body = sitexml.getContentByIdAndName(d.get('id'), d.get('name'))
         else:
             sitexml.response_body = sitexml.page()
@@ -653,21 +658,24 @@ def app(environ, start_response):
         ]
 
     start_response(sitexml.status, sitexml.response_headers)
-    return [sitexml.response_body]
+    return [sitexml.response_body.encode()]
 
+
+session_opts = {
+    'session.auto': True,
+    'session.type': 'cookie',
+    'session.validate_key': 'ABCDEF',
+    'session.cookie_expires': True,
+    'session.httponly': True,
+    'session.secure': True
+}
+
+session_app = SessionMiddleware(app, session_opts)
+wsgi_app = static.Cling(os.path.dirname(os.path.realpath(__name__)), not_found=session_app)
 
 if __name__ == '__main__':
     try:
         from wsgiref.simple_server import make_server
-
-        session_opts = {
-            'session.auto': True,
-            'session.type': 'cookie',
-            'session.cookie_expires': True,
-            'session.httponly': True,
-            'session.secure': True
-        }
-        wsgi_app = SessionMiddleware(app, session_opts)
 
         httpd = make_server('', 8080, wsgi_app)
         print('Serving on port 8080...')
