@@ -21,4 +21,4 @@ into your `myapp.wsgi` file.
 ### NOTES:
 
 - The minimum requirement is the presence of .site.xml file in the site root.
-- About PEP8 coding convention violation (camelCase method's names): this violation was passed by consciously to made comparison with SiteXML:PHP easy.
+- About PEP8 coding convention violation (camelCase method's names): this violation was left consciously to make comparison with SiteXML:PHP easy.
