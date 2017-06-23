@@ -1,0 +1,5 @@
+<site>
+  <page id="1" name="home">
+    <content id="1" name="main">hello.html</content>
+  </page>
+</site> 

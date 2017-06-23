@@ -33,7 +33,6 @@ from urllib.parse import parse_qs, unquote_plus
 import lxml.etree as ET
 from beaker.middleware import SessionMiddleware
 import static
-import pdb
 
 DEBUG = True
 SITEXML = '.site.xml'
