@@ -10,13 +10,11 @@ Choose one of the following:
 2. Use `gunicorn` webserver: `gunicorn sitexml:wsgi_app`
 3. Apache webserver with wsgi_mod. [Read configuration guide here](http://modwsgi.readthedocs.io/en/develop/user-guides/quick-configuration-guide.html)
 
-* Put 
+* [Example of configruation](http://flask.pocoo.org/docs/0.12/deploying/mod_wsgi/)
 
+(Put
 ``` from sitexml import wsgi_app as application ```
-
-into your `myapp.wsgi` file.
-
-* [Example of configruation here](http://flask.pocoo.org/docs/0.12/deploying/mod_wsgi/)
+into your `myapp.wsgi` file.)
 
 ### NOTES:
 
