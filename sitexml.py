@@ -29,11 +29,13 @@ SOFTWARE.
 
 import os
 import hashlib
-from urllib.parse import parse_qs, unquote_plus
+from urllib.parse import parse_qsl, unquote_plus
 import lxml.etree as ET
 from beaker.middleware import SessionMiddleware
 import static
 
+
+REAL_PATH = '/var/sitexml/'
 DEBUG = True
 SITEXML = '.site.xml'
 USERS_FILE = '../.users'
@@ -108,7 +110,7 @@ class SiteXML:
             self.editMode = True
 
     def loginScreen(self, edit=''):
-        self.response_body = '''
+        return ('''
         <!DOCTYPE html>
 <html>
 <head>
@@ -133,17 +135,16 @@ class SiteXML:
             <input placeholder="Password" name="password" type="password">
         </div>
         <div>
+        ''' +
+                ('<input type="hidden" name="edit" value="true">' if edit == 'edit' else '') +
         '''
-        if edit == 'edit':
-            self.response_body = '<input type="hidden" name="edit" value="true">'
-        self.response_body = '''
         <input type="submit">
         </div>
     </form>
 </div>
 </body>
 </html>
-        '''
+        ''')
 
     def login(self, username, password, edit):
         m = hashlib.md5()
@@ -159,8 +160,8 @@ class SiteXML:
 
     @staticmethod
     def getUser(username):
-        if os.path.isfile(USERS_FILE):
-            with open(USERS_FILE, 'r') as f:
+        if os.path.isfile(REAL_PATH + USERS_FILE):
+            with open(REAL_PATH + USERS_FILE, 'r', encoding='utf-8') as f:
                 for user in f.readline():
                     user = user.split(':')
                     if user[1] == username:
@@ -171,14 +172,16 @@ class SiteXML:
 
     @staticmethod
     def getObj():
-        if os.path.isfile(SITEXML):
-            return ET.parse(SITEXML).getroot()
+        if os.path.isfile(REAL_PATH + SITEXML):
+            return ET.parse(REAL_PATH + SITEXML).getroot()
         else:
             raise FileNotFoundError
 
     def getPid(self):
         pid = None
-        d = parse_qs(self.environ['QUERY_STRING'])
+        d = dict(parse_qsl(self.environ['QUERY_STRING']))
+        if d == {}:
+            d = dict.fromkeys(self.environ['QUERY_STRING'].split('&'))
 
         if 'id' in d:
             pid = d['id']
@@ -247,7 +250,7 @@ class SiteXML:
 
     def getPageObj(self, pid):
         if pid is not None:
-            pageObj = self.obj.xpath(".//page[@id='" + pid + "']")
+            pageObj = self.obj.xpath(".//page[@id='" + str(pid) + "']")
         else:
             pageObj = self.obj.xpath(".//page")
         if pageObj is not None:
@@ -298,8 +301,8 @@ class SiteXML:
                 path += '/'
             if 'file' in attr:
                 path += attr['file']
-                if os.path.isfile(path):
-                    with open(path, 'r') as f:
+                if os.path.isfile(REAL_PATH + path):
+                    with open(REAL_PATH + path, 'r', encoding='utf-8') as f:
                         themeHTML = f.read()
                 else:
                     self.error('SiteXML error: template file does not exist, default template HTML will be used')
@@ -412,15 +415,15 @@ class SiteXML:
                     if HTML.find(search) != -1:
                         if attr.get('type') == 'module':
                             file = MODULES_DIR + v.text
-                            if os.path.isfile(file):
-                                with open(file, 'r') as f:
+                            if os.path.isfile(REAL_PATH + file):
+                                with open(REAL_PATH + file, 'r', encoding='utf-8') as f:
                                     contents = f.read()  # evaluate???
                             else:
                                 self.error('Error: module file ' + file + ' does not exist')
                         else:
                             file = CONTENT_DIR + v.text
-                            if os.path.isfile(file):
-                                with open(file, 'r') as f:
+                            if os.path.isfile(REAL_PATH + file):
+                                with open(REAL_PATH + file, 'r', encoding='utf-8') as f:
                                     contents = f.read()
                                 contents = '<div class="siteXML-content" cid="' + attr[
                                     'id'] + '" cname="' + name + '">' + contents + '</div>'
@@ -546,19 +549,19 @@ class SiteXML:
         return newattr
 
     def getXML(self):
-        with open(SITEXML, 'r') as f:
+        with open(REAL_PATH + SITEXML, 'r', encoding='utf-8') as f:
             return f.read()
 
     def saveXML(self, xmlstr):
-        with open(SITEXML, 'w') as f:
+        with open(REAL_PATH + SITEXML, 'w', encoding='utf-8') as f:
             return f.write(xmlstr)
 
     def saveContent(self, cid, content):
-        file = self.obj.xpath(".//content[@id='" + cid + "']")
-        file = CONTENT_DIR + file[0]
-        if os.path.isfile(file):
+        file = self.obj.xpath(".//content[@id='" + str(cid) + "']")
+        file = CONTENT_DIR + file[0].text
+        if os.path.isfile(REAL_PATH + file):
             try:
-                with open(file, 'w') as f:
+                with open(REAL_PATH + file, 'w', encoding='utf-8') as f:
                     f.write(content)
                 self.response_body = 'Content saved'
             except:
@@ -569,7 +572,7 @@ class SiteXML:
             self.error('Error: Content file ' + file + ' does not exist')
 
     def getContentByIdAndName(self, id, name):
-        c = self.obj.xpath(".//page[@id='" + id + "']/content[@name='" + name + "']")
+        c = self.obj.xpath(".//page[@id='" + str(id) + "']/content[@name='" + str(name) + "']")
         attr = self.attributes(c[0])
         cid = attr.get('id')
         return self.getContent(cid, c)
@@ -580,13 +583,13 @@ class SiteXML:
         @param {XML Object} $cobj - not required; content node object
         """
         if cobj is None:
-            file = self.obj.xpath(".//content[@id='" + cid + "']")
+            file = self.obj.xpath(".//content[@id='" + str(cid) + "']")
         else:
             file = cobj
 
-        file = CONTENT_DIR + file[0]
-        if os.path.isfile(file):
-            with open(file, 'r') as f:
+        file = CONTENT_DIR + file[0].text
+        if os.path.isfile(REAL_PATH + file):
+            with open(REAL_PATH + file, 'r', encoding='utf-8') as f:
                 content = f.read()
             content = self.replacePlink(content)
         else:
@@ -611,20 +614,22 @@ def app(environ, start_response):
             request_body_size = 0
 
         request_body = environ['wsgi.input'].read(request_body_size)
-        d = parse_qs(request_body)
+        d = dict(parse_qsl(request_body))
 
-        if 'sitexml' in d:
+        if d.get('sitexml') is not None:
             if sitexml.saveXML(d.get('sitexml')):
                 sitexml.response_body = 'siteXML saved'
             else:
                 sitexml.response_body = sitexml.error('siteXML was not saved')
-        elif ('cid' in d) and ('content' in d):
+        elif (d.get('cid') is not None) and (d.get('content') is not None):
             sitexml.saveContent(d.get('cid'), d.get('content'))
-        elif (not d.get('username')) and (not d.get('password')):
+        elif (d.get('username' is not None)) and (not d.get('password' is not None)):
             sitexml.response_body = sitexml.login(d['username'], d['password'], d.get('edit'))
 
     elif method == 'GET':
-        d = parse_qs(environ['QUERY_STRING'])
+        d = dict(parse_qsl(environ['QUERY_STRING']))
+        if d == {}:
+            d = dict.fromkeys(environ['QUERY_STRING'].split('&'))
 
         if 'logout' in d:
             sitexml.logout()
@@ -642,9 +647,9 @@ def app(environ, start_response):
             sitexml.response_body = sitexml.getXML()
         elif 'login' in d:
             sitexml.response_body = sitexml.loginScreen()
-        elif 'cid' in d:
+        elif d.get('cid') is not None:
             sitexml.response_body = sitexml.getContent(d.get('cid'))
-        elif ('id' in d) and ('name' in d):
+        elif (d.get('id') is not None) and (d.get('name') is not None):
             sitexml.response_body = sitexml.getContentByIdAndName(d.get('id'), d.get('name'))
         else:
             sitexml.response_body = sitexml.page()
@@ -670,7 +675,9 @@ session_opts = {
 }
 
 session_app = SessionMiddleware(app, session_opts)
-wsgi_app = static.Cling(os.path.dirname(os.path.realpath(__name__)), not_found=session_app)
+#wsgi_app = static.Cling(os.path.dirname(os.path.realpath(__name__)), not_found=session_app)
+wsgi_app = static.Cling(REAL_PATH, not_found=session_app)
+application = wsgi_app
 
 if __name__ == '__main__':
     try:
