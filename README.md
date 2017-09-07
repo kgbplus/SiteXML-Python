@@ -7,7 +7,7 @@ WSGI application SiteXML engine. Read more about SiteXML[http://sitexml.info/](h
 Choose one of the following:
 
 1. Start `sitexml.py` by itself (install requirements first)
-2. Use `gunicorn` webserver: `gunicorn --workers=2 sitexml:wsgi_app`
+2. Use `gunicorn` webserver: `gunicorn --workers=2 --bind=0.0.0.0 sitexml:wsgi_app`
 3. Apache webserver with wsgi_mod. [Read configuration guide here](http://modwsgi.readthedocs.io/en/develop/user-guides/quick-configuration-guide.html)
 
 * [Example of configuration.](https://github.com/kgbplus/SiteXML-Python/blob/master/sitexml-apache2.conf)
