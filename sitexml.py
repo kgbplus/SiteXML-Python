@@ -35,7 +35,7 @@ from beaker.middleware import SessionMiddleware
 import static
 
 
-REAL_PATH = '/var/sitexml/'
+REAL_PATH = '/var/www/html/'
 DEBUG = True
 SITEXML = '.site.xml'
 USERS_FILE = '../.users'
@@ -94,7 +94,7 @@ class SiteXML:
 
     @response_headers.setter
     def response_headers(self, header):
-        self._response_headers += header
+        self._response_headers.append(header)
 
     @property
     def response_body(self):
@@ -127,7 +127,7 @@ class SiteXML:
 </style>
 <body>
 <div class="siteXML-logindiv">
-    <form action="/" method="post">
+    <form action="/''' + (self.basePath if self.basePath is not None else '') + '''" method="post">
         <div>
             <input placeholder="Username" name="username" type="text" autofocus="true">
         </div>
@@ -135,9 +135,7 @@ class SiteXML:
             <input placeholder="Password" name="password" type="password">
         </div>
         <div>
-        ''' +
-                ('<input type="hidden" name="edit" value="true">' if edit == 'edit' else '') +
-        '''
+        ''' + ('<input type="hidden" name="edit" value="true">' if edit == 'edit' else '') + '''
         <input type="submit">
         </div>
     </form>
@@ -148,23 +146,26 @@ class SiteXML:
 
     def login(self, username, password, edit):
         m = hashlib.md5()
+        m.update(password.encode())
+        password = m.hexdigest()
 
-        password = m.update(password).hexdigest()
         user = self.getUser(username)
         if user:
-            if user[2] == password:
+            if user[1] == password:
                 self.session['username'] = username
                 if edit:
                     self.session['edit'] = True
-                self.response_headers = ('location', '/')
+                self.status = '302 Found'
+                self.response_headers = ('location', '/' + (self.basePath if self.basePath is not None else ''))
 
     @staticmethod
     def getUser(username):
         if os.path.isfile(REAL_PATH + USERS_FILE):
             with open(REAL_PATH + USERS_FILE, 'r', encoding='utf-8') as f:
-                for user in f.readline():
+                for user in f:
                     user = user.split(':')
-                    if user[1] == username:
+                    if user[0] == username:
+                        user[1] = user[1].replace('\n', '')
                         return user
 
     def logout(self):
@@ -183,7 +184,10 @@ class SiteXML:
         if d == {}:
             d = dict.fromkeys(self.environ['QUERY_STRING'].split('&'))
 
-        if 'id' in d:
+        if self.environ['PATH_INFO'] == '': # mod_wsgi return empty PATH_INFO if in root
+            self.environ['PATH_INFO'] = '/'
+
+        if d.get('id') is not None:
             pid = d['id']
         elif self.environ['PATH_INFO'] != '/':
             if self.environ['PATH_INFO'][0] == '/':
@@ -490,7 +494,7 @@ class SiteXML:
             pos1 = HTML.find('(', pos + 1)
             pos2 = HTML.find(')', pos + 1)
             if pos1 >= 0 and pos2 >= 0:
-                arg = HTML[pos1 + 1:pos2 - pos1 - 1]
+                arg = HTML[pos1+1:pos2]
             else:
                 arg = None
             if arg:
@@ -602,9 +606,7 @@ def app(environ, start_response):
 
     sitexml = SiteXML(environ)
 
-    sitexml.response_headers = [
-        ('Content-Type', 'text/html; charset=utf-8'),
-    ]
+    sitexml.response_headers = ('Content-Type', 'text/html; charset=utf-8')
 
     method = environ['REQUEST_METHOD']
     if method == 'POST':
@@ -614,17 +616,22 @@ def app(environ, start_response):
             request_body_size = 0
 
         request_body = environ['wsgi.input'].read(request_body_size)
-        d = dict(parse_qsl(request_body))
+        d = dict(parse_qsl(request_body.decode()))
 
         if d.get('sitexml') is not None:
-            if sitexml.saveXML(d.get('sitexml')):
+            if session.get('username') is None:
+                sitexml.status = 'HTTP/1.1 401 Access denied'
+            elif sitexml.saveXML(d.get('sitexml')):
                 sitexml.response_body = 'siteXML saved'
             else:
                 sitexml.response_body = sitexml.error('siteXML was not saved')
         elif (d.get('cid') is not None) and (d.get('content') is not None):
-            sitexml.saveContent(d.get('cid'), d.get('content'))
-        elif (d.get('username' is not None)) and (not d.get('password' is not None)):
-            sitexml.response_body = sitexml.login(d['username'], d['password'], d.get('edit'))
+            if session.get('username') is None:
+                sitexml.status = 'HTTP/1.1 401 Access denied'
+            else:
+                sitexml.saveContent(d.get('cid'), d.get('content'))
+        elif d.get('username') is not None and d.get('password') is not None:
+            sitexml.login(d['username'], d['password'], d.get('edit'))
 
     elif method == 'GET':
         d = dict(parse_qsl(environ['QUERY_STRING']))
@@ -641,9 +648,7 @@ def app(environ, start_response):
             else:
                 sitexml.response_body = sitexml.loginScreen('edit')
         elif 'sitexml' in d:
-            sitexml.response_headers = [
-                ('Content-Type', 'text/xml; charset=utf-8'),
-            ]
+            sitexml.response_headers = ('Content-Type', 'text/xml; charset=utf-8')
             sitexml.response_body = sitexml.getXML()
         elif 'login' in d:
             sitexml.response_body = sitexml.loginScreen()
@@ -656,10 +661,8 @@ def app(environ, start_response):
 
     else:
         sitexml.status = '405 Method Not Allowed'
-        sitexml.response_headers = [
-            ('Content-Type', 'text/html; charset=utf-8'),
-            ('Allow', 'GET, POST'),
-        ]
+        sitexml.response_headers = ('Content-Type', 'text/html; charset=utf-8')
+        sitexml.response_headers = ('Allow', 'GET, POST')
 
     start_response(sitexml.status, sitexml.response_headers)
     return [sitexml.response_body.encode()]
@@ -675,9 +678,8 @@ session_opts = {
 }
 
 session_app = SessionMiddleware(app, session_opts)
-#wsgi_app = static.Cling(os.path.dirname(os.path.realpath(__name__)), not_found=session_app)
-wsgi_app = static.Cling(REAL_PATH, not_found=session_app)
-application = wsgi_app
+wsgi_app = static.Cling(REAL_PATH, not_found=session_app, method_not_allowed=session_app)
+application = session_app
 
 if __name__ == '__main__':
     try:
